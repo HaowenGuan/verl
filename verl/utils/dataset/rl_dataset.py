@@ -140,6 +140,8 @@ class RLHFDataset(Dataset):
 
         self.dataframe = self.maybe_filter_out_long_prompts(self.dataframe)
 
+        print(f"filtered dataset len: {len(self.dataframe)}")
+
     def maybe_filter_out_long_prompts(self, dataframe: datasets.Dataset = None):
         # filter out too long prompts
         if self.filter_overlong_prompts:
@@ -253,7 +255,9 @@ class RLHFDataset(Dataset):
 
                 # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
                 # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
-                multi_modal_data["video"] = [video.numpy() for video in videos]
+                multi_modal_data["video"] = videos
+                # multi_modal_data["video"] = [video.numpy() for video in videos]
+                multi_modal_data["fps"] = [video.get('fps', 2.0) for video in row_dict_videos]
 
             model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
 

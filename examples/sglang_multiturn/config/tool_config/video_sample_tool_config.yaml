@@ -1,0 +1,19 @@
+tools:
+  - class_name: "verl.tools.vstar_tool.VSTaRTool"
+    config:
+      type: native
+    tool_schema:
+      type: "function"
+      function:
+        name: "get_video_frames"
+        description: "A tool for extracting frames from a video clip given the time window [start_time, end_time] in seconds. This tool allows you to look at a specific segment of a video."
+        parameters:
+          type: "object"
+          properties:
+            start_time:
+              type: "float"
+              description: "The start time of the video clip in seconds. Must be a float number with one decimal."
+            end_time:
+              type: "float"
+              description: "The end time of the video clip in seconds Must be a float number with one decimal."
+          required: ["start_time", "end_time"]

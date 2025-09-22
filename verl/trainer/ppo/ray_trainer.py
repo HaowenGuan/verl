@@ -402,6 +402,8 @@ class RayPPOTrainer:
             collate_fn=collate_fn,
         )
 
+        print('Train dataset size:', len(self.train_dataloader))
+        print('Val dataset size:', len(self.val_dataloader))
         assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
         assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
 

@@ -24,6 +24,8 @@ from copy import deepcopy
 from json import JSONDecodeError
 from typing import Any, Generator, Optional
 from uuid import uuid4
+from tqdm import tqdm
+import sys
 
 import numpy as np
 import sglang.srt.entrypoints.engine
@@ -837,8 +839,13 @@ class SGLangRollout(BaseRollout):
 
         # Update with any additional kwargs
         request_sampling_params.update(kwargs)
+        # temp_i = -1
+        import random
+        rand_id = random.randint(0, 1000000)
 
         while current_turns < self.config.multi_turn.max_assistant_turns:
+            # temp_i += 1
+            # print('id:', rand_id, "round", temp_i)
             if _req.state == AsyncRolloutRequestStateEnum.PENDING:
                 await self._handle_pending_state(_req)
                 _req.state = AsyncRolloutRequestStateEnum.RUNNING
@@ -855,6 +862,7 @@ class SGLangRollout(BaseRollout):
                             for tool_call in parsed_tool_calls
                         ]
                     )
+                    print(f'id {rand_id} round {current_turns} tool responds:\n', tool_call_results)
                     _req.add_tool_response_messages(self.processing_class, [resp for resp, _, _ in tool_call_results])
                     for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results, strict=True):
                         _req.update_metrics(metrics, tool_call.function.name)
@@ -889,10 +897,14 @@ class SGLangRollout(BaseRollout):
                     logger.warning(
                         "video support is not implemented yet, current length of video data is %d", len(video_data)
                     )
+                # print("length of input images", len(image_data))
 
                 output = await self._handle_engine_call(_req, request_sampling_params, image_data=image_data)
                 content = output["text"]
+                # print('id:', rand_id, "round", current_turns)
+                print(f'id {rand_id} round {current_turns}:', content)
                 finish_reason_type = FinishReasonTypeEnum.from_str(output["meta_info"]["finish_reason"]["type"])
+                # print('id:', rand_id, "round", current_turns, finish_reason_type)
                 current_turns += 1
                 if finish_reason_type == FinishReasonTypeEnum.LENGTH:
                     _req.add_assistant_message(self.processing_class, content)
@@ -980,6 +992,8 @@ class SGLangRollout(BaseRollout):
                     else:
                         _req.state = AsyncRolloutRequestStateEnum.RUNNING
 
+        # print("=================== Checkpoint 1: Out of loop")
+
         if current_turns >= self.config.multi_turn.max_assistant_turns:
             finish_reason_type = FinishReasonTypeEnum.STOP
 
@@ -996,7 +1010,9 @@ class SGLangRollout(BaseRollout):
         tool_reward_scores = await asyncio.gather(*tool_reward_tasks)
         tool_reward_scores = dict(tool_reward_scores)
         all_rewards = {**tool_reward_scores, **{"user_turn_rewards": user_turn_rewards}}
+        # print("=================== Checkpoint 2: Before finalize")
         _req.finalize(self.processing_class, all_rewards, finish_reason_type)
+        # print("=================== Checkpoint 3: After finalize")
         if self.config.calculate_log_probs:
             debug_sampling_params = {**self.sampling_params}
             debug_sampling_params["max_new_tokens"] = 0
@@ -1009,6 +1025,7 @@ class SGLangRollout(BaseRollout):
             )
             # len(input_token_logprobs) = len(input_tokens)-1，because logprob of 1st token is None
             _req.output_token_ids, _req.rollout_log_probs = _extract_logprob_from_output(output)
+        # print("=================== Checkpoint 4: Complete", 'id:', rand_id)
         return _req
 
     async def _handle_engine_call(
@@ -1066,12 +1083,16 @@ class SGLangRollout(BaseRollout):
         For multi-turn generation, each prompt is processed separately via
         `_req_level_generate_sequences` for better tool calling control.
         Note that in multi-turn generation, we repeat the prompts for rollout.n times in ray_trainer.
-        Thus we do not need to repeat the prompts here and set the sampling parameter n to 1.
+        Thus, we do not need to repeat the prompts here and set the sampling parameter n to 1.
         """
         # Async rollout with tools support
         do_sample = prompts.meta_info.get("do_sample", True)
         is_validate = prompts.meta_info.get("validate", False)
         tgt_device = prompts.batch["input_ids"].device
+
+        # print("============================================================ is_validate:", is_validate)
+        # if not is_validate:
+        #     raise NotImplementedError
 
         if self._tp_rank == 0:
             req_list = self._preprocess_prompt_to_async_rollout_requests(
@@ -1395,65 +1416,77 @@ class SGLangRollout(BaseRollout):
             "multi_modal_data", [None] * len(prompts.non_tensor_batch["raw_prompt"])
         )
 
-        for data_idx, (raw_prompt, multi_modal_data) in enumerate(
-            zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list, strict=True)
-        ):
-            if self._tool_schemas:
-                _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
-                _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
-                _input_ids = None
-                _attention_mask = None
-            else:
-                _input_ids = _pre_process_inputs(self.pad_token_id, prompts.batch["input_ids"][data_idx])
-                _attention_mask = _pre_process_inputs(0, prompts.batch["attention_mask"][data_idx])
-                _tools_kwargs = {}
-                _tool_schemas = None
+        print(f"Pre-processing {len(prompts)} async requests ...")
+        start_time = time.time()
 
-            if self.interaction_map:
-                _interaction_kwargs = prompts.non_tensor_batch["interaction_kwargs"][data_idx]
-            else:
-                _interaction_kwargs = {}
+        with silence_logs():
+            for data_idx, (raw_prompt, multi_modal_data) in enumerate(
+                zip(prompts.non_tensor_batch["raw_prompt"], multi_modal_data_list, strict=True)
+            ):
+                # print("|", end="", flush=True, file=sys.stderr)
+                if self._tool_schemas:
+                    _tools_kwargs = prompts.non_tensor_batch["tools_kwargs"][data_idx]
+                    _tool_schemas = [self._tool_map[k].get_openai_tool_schema() for k in _tools_kwargs.keys()]
+                    _input_ids = None
+                    _attention_mask = None
+                else:
+                    _input_ids = _pre_process_inputs(self.pad_token_id, prompts.batch["input_ids"][data_idx])
+                    _attention_mask = _pre_process_inputs(0, prompts.batch["attention_mask"][data_idx])
+                    _tools_kwargs = {}
+                    _tool_schemas = None
 
-            if not isinstance(raw_prompt, list | np.ndarray):
-                raise TypeError(f"raw_prompt must be a list or numpy array, got {type(raw_prompt)}")
+                if self.interaction_map:
+                    _interaction_kwargs = prompts.non_tensor_batch["interaction_kwargs"][data_idx]
+                else:
+                    _interaction_kwargs = {}
 
-            req = AsyncRolloutRequest(
-                batch_data_id=data_idx,
-                rollout_offset=0,
-                request_id=str(uuid4()),
-                state=AsyncRolloutRequestStateEnum.PENDING,
-                messages=list(raw_prompt),
-                multi_modal_data=multi_modal_data,
-                tool_schemas=_tool_schemas,
-                tools_kwargs=_tools_kwargs,
-                interaction_kwargs=_interaction_kwargs,
-                input_ids=_input_ids,
-                response_ids=None,
-                attention_mask=_attention_mask,
-                response_attention_mask=None,
-                response_position_ids=None,
-                response_loss_mask=None,
-                reward_scores={},
-                max_prompt_len=self.config.prompt_length,
-                max_response_len=self.config.response_length,
-                max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
-                use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
-                tokenization_sanity_check_mode=self.config.multi_turn.tokenization_sanity_check_mode,
-                processing_class=self.processing_class,
-            )
-            error_message = f"""Request {req.request_id} has mismatched lengths: 
-            input_ids={req.input_ids.shape[-1]}, 
-            attention_mask={req.attention_mask.shape[-1]}, 
-            position_ids={req.position_ids.shape[-1]}, 
-            loss_mask={req.loss_mask.shape[-1]}"""
-            assert (
-                req.input_ids.shape[-1]
-                == req.attention_mask.shape[-1]
-                == req.position_ids.shape[-1]
-                == req.loss_mask.shape[-1]
-            ), error_message
-            req_list.append(req)
+                if not isinstance(raw_prompt, list | np.ndarray):
+                    raise TypeError(f"raw_prompt must be a list or numpy array, got {type(raw_prompt)}")
 
+                # Passed
+                # print('Reached here 1')
+                # print(raw_prompt)
+                # print(multi_modal_data)
+
+                req = AsyncRolloutRequest(
+                    batch_data_id=data_idx,
+                    rollout_offset=0,
+                    request_id=str(uuid4()),
+                    state=AsyncRolloutRequestStateEnum.PENDING,
+                    messages=list(raw_prompt),
+                    multi_modal_data=multi_modal_data,
+                    tool_schemas=_tool_schemas,
+                    tools_kwargs=_tools_kwargs,
+                    interaction_kwargs=_interaction_kwargs,
+                    input_ids=_input_ids,
+                    response_ids=None,
+                    attention_mask=_attention_mask,
+                    response_attention_mask=None,
+                    response_position_ids=None,
+                    response_loss_mask=None,
+                    reward_scores={},
+                    max_prompt_len=self.config.prompt_length,
+                    max_response_len=self.config.response_length,
+                    max_model_len=min(self.config.max_model_len, self.config.prompt_length + self.config.response_length),
+                    use_inference_chat_template=self.config.multi_turn.use_inference_chat_template,
+                    tokenization_sanity_check_mode=self.config.multi_turn.tokenization_sanity_check_mode,
+                    processing_class=self.processing_class,
+                )
+                error_message = f"""Request {req.request_id} has mismatched lengths: 
+                input_ids={req.input_ids.shape[-1]}, 
+                attention_mask={req.attention_mask.shape[-1]}, 
+                position_ids={req.position_ids.shape[-1]}, 
+                loss_mask={req.loss_mask.shape[-1]}"""
+                assert (
+                    req.input_ids.shape[-1]
+                    == req.attention_mask.shape[-1]
+                    == req.position_ids.shape[-1]
+                    == req.loss_mask.shape[-1]
+                ), error_message
+                req_list.append(req)
+
+        end_time = time.time()
+        print(f"Pre-processing Done. Time taken: {end_time - start_time:.2f} seconds for {len(prompts)} requests.")
         return req_list
 
     async def resume(self, tags: list[str]):
@@ -1593,3 +1626,20 @@ class SGLangRollout(BaseRollout):
             token_ids = output["output_ids"]
             log_probs = None
         return TokenOutput(token_ids=token_ids, log_probs=log_probs)
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def silence_logs():
+    import logging
+    prev = {}
+    for name in ["", "verl", "ray", "sglang", "vllm", "transformers"]:
+        lg = logging.getLogger(name)
+        prev[name] = lg.level
+        lg.setLevel(logging.ERROR)
+    try:
+        yield
+    finally:
+        for name, lvl in prev.items():
+            logging.getLogger(name).setLevel(lvl)

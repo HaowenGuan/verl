@@ -1,0 +1,16 @@
+tools:
+  - class_name: "verl.tools.vstar_tool.VSTaRTool"
+    config:
+      type: native
+    tool_schema:
+      type: "function"
+      function:
+        name: "calc_vstar_reward"
+        description: "A tool for testing the prediction of video temporal localization task. The respond value (intersection over union) ranges from 0.0 to 1.0, where 1.0 indicates a perfect match between the predicted and ground truth temporal segments, and 0.0 indicates no overlap."
+        parameters:
+          type: "object"
+          properties:
+            answer:
+              type: "string"
+              description: "Predicted answer [start_second, end_second] to the temporal localization in video."
+          required: ["answer"]

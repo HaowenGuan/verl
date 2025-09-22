@@ -158,6 +158,24 @@ class AsyncRolloutRequest(BaseModel):
             add_generation_prompt=False,
             tokenize=True,
         )
+        # temp = cls._handle_apply_chat_template(
+        #     processing_class,
+        #     messages,
+        #     multi_modal_data=multi_modal_data,
+        #     tools=tools,
+        #     add_generation_prompt=True,
+        #     tokenize=False,
+        # )
+        # print(messages)
+        # print()
+        # print(tools)
+        # print()
+        # print(temp)
+        # print()
+        # print("tokenizer", processing_class)
+        # print()
+        # print("chat_template", processing_class.chat_template)
+        # raise NotImplementedError
         if (
             values.get("input_ids") is None
             or values.get("attention_mask") is None
@@ -510,25 +528,38 @@ class AsyncRolloutRequest(BaseModel):
         current_prompt_ids = current_prompt_ids.squeeze(0)
         full_prompt = processing_class.decode(full_prompt_ids, skip_special_tokens=False)
         current_prompt = processing_class.decode(current_prompt_ids, skip_special_tokens=False)
-        s = difflib.SequenceMatcher(None, full_prompt, current_prompt, autojunk=False)
+        # print("Full prompt:", full_prompt)
         diffs = []
-        for tag, i1, i2, j1, j2 in s.get_opcodes():
-            if tag == "equal":
-                continue
+        # SequenceMatcher is EXTREMELY slow for long sequences
+        use_fast_diff_checker = True
+        if use_fast_diff_checker:
+            if full_prompt != current_prompt:
+                diffs.append(
+                    {
+                        "full_prompt_chunk": full_prompt,
+                        "current_prompt_chunk": current_prompt,
+                        "indices": (0, len(full_prompt), 0, len(current_prompt)),
+                    }
+                )
+        else:
+            s = difflib.SequenceMatcher(None, full_prompt, current_prompt, autojunk=False)
+            for tag, i1, i2, j1, j2 in s.get_opcodes():
+                if tag == "equal":
+                    continue
 
-            # Get the surrounding context for better readability
-            start_i = max(0, i1 - diff_surrounding_chars)
-            end_i = min(len(full_prompt), i2 + diff_surrounding_chars)
-            start_j = max(0, j1 - diff_surrounding_chars)
-            end_j = min(len(current_prompt), j2 + diff_surrounding_chars)
+                # Get the surrounding context for better readability
+                start_i = max(0, i1 - diff_surrounding_chars)
+                end_i = min(len(full_prompt), i2 + diff_surrounding_chars)
+                start_j = max(0, j1 - diff_surrounding_chars)
+                end_j = min(len(current_prompt), j2 + diff_surrounding_chars)
 
-            diffs.append(
-                {
-                    "full_prompt_chunk": full_prompt[start_i:end_i],
-                    "current_prompt_chunk": current_prompt[start_j:end_j],
-                    "indices": (start_i, end_i, start_j, end_j),
-                }
-            )
+                diffs.append(
+                    {
+                        "full_prompt_chunk": full_prompt[start_i:end_i],
+                        "current_prompt_chunk": current_prompt[start_j:end_j],
+                        "indices": (start_i, end_i, start_j, end_j),
+                    }
+                )
         return diffs
 
     def _remove_generation_prompt_ids_if_present(self) -> None:
@@ -554,7 +585,7 @@ class AsyncRolloutRequest(BaseModel):
         # input_ids, remove them from the end of input_ids
         self._remove_generation_prompt_ids_if_present()
 
-        self.response_ids = self.input_ids[..., self.prompt_ids.shape[-1] :]
+        self.response_ids = self.input_ids[..., self.prompt_ids.shape[-1]:]
 
         if self.tokenization_sanity_check_mode != TokenizationSanityCheckModeEnum.DISABLE:
             # When there is a diff, we log the diffs with diff_surrounding_chars context
