@@ -66,6 +66,7 @@ class NaiveRewardManager(AbstractRewardManager):
             prompt_ids = data_item.batch["prompts"]
 
             prompt_length = prompt_ids.shape[-1]
+            # print(f"Debug data_item length {prompt_length=}:\n", data_item)
 
             valid_prompt_length = data_item.batch["attention_mask"][:prompt_length].sum()
             valid_prompt_ids = prompt_ids[-valid_prompt_length:]
@@ -77,6 +78,14 @@ class NaiveRewardManager(AbstractRewardManager):
             # decode
             prompt_str = self.tokenizer.decode(valid_prompt_ids, skip_special_tokens=True)
             response_str = self.tokenizer.decode(valid_response_ids, skip_special_tokens=True)
+            # print(f"{valid_prompt_length=} {valid_response_length=}")
+            # print(f"{prompt_str=}")
+            # print("=" * 40)
+            # print(f"{response_str=}")
+            # print("=" * 40)
+            # import time
+            # time.sleep(1)
+            # raise NotImplementedError
 
             ground_truth = data_item.non_tensor_batch["reward_model"]["ground_truth"]
             data_source = data_item.non_tensor_batch[self.reward_fn_key]

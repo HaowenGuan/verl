@@ -17,6 +17,7 @@ import logging
 import os
 from enum import Enum
 from typing import Any, Optional
+import re
 
 import torch
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -439,7 +440,23 @@ class AsyncRolloutRequest(BaseModel):
             content_list = []
             # When we update multi_model_keys, we also need to update this logic
             if content.image:
-                content_list.extend([{"type": "image"} for _ in content.image])
+                if not content.vision_info:
+                    content_list.extend([{"type": "image"} for _ in content.image])
+                else:
+                    vision_info = content.vision_info
+                    sample_fps = vision_info[0]
+                    start_time = vision_info[1]
+                    dt = round(1.0 / sample_fps if sample_fps > 0 else 1.0, 1)
+                    n_frames = len(content.image)
+                    temp_frames = [f"Frame {i} (at {start_time + (dt * i):.1f}s): <image>" for i in range(n_frames)]
+                    cur_prompt = f" ".join(temp_frames)
+                    segments = re.split("(<image>|<video>)", cur_prompt)
+                    segments = [item for item in segments if item != ""]
+                    for segment in segments:
+                        if segment == "<image>":
+                            content_list.append({"type": "image"})
+                        else:
+                            content_list.append({"type": "text", "text": segment})
                 delta_multi_modal_data["image"].extend(content.image)
             if content.video:
                 content_list.extend([{"type": "video"} for _ in content.video])
@@ -448,7 +465,7 @@ class AsyncRolloutRequest(BaseModel):
                 content_list.append({"type": "text", "text": content.text})
             self.messages.append(Message(role="tool", content=content_list))
 
-        messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents) :]]
+        messages = [*BASE_CHAT_HISTORY, *self.messages[-len(contents):]]
         tools = [tool.model_dump() for tool in self.tool_schemas] if self.tool_schemas else None
 
         for key in self.multi_modal_keys:
@@ -465,7 +482,7 @@ class AsyncRolloutRequest(BaseModel):
             tokenize=True,
             return_dict=True,
         )
-        content_ids = content_info["input_ids"][..., self.base_conv_wo_gen_prompt_end_pos :]
+        content_ids = content_info["input_ids"][..., self.base_conv_wo_gen_prompt_end_pos:]
 
         # process multi_modal_inputs
         multi_modal_inputs = content_info.copy()

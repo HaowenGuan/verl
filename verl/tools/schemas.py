@@ -97,6 +97,7 @@ class ToolResponse(BaseModel):
     text: str | None = None
     image: list[Any] | None = None
     video: list[Any] | None = None
+    vision_info: list[float] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -113,6 +114,12 @@ class ToolResponse(BaseModel):
                 f"For single videos, wrap in a list: [video]. "
                 f"Example: {{'video': [video1]}} or {{'video': [video1, video2, ...]}}."
             )
+        if "vision_info" in values:
+            for v in values["vision_info"]:
+                if not isinstance(v, float):
+                    raise ValueError(f"Vision info must be a list of floats, but got {type(v)}.")
+            # if not isinstance(values["sample_fps"], float):
+            #     raise ValueError(f"Image FPS must be a float, but got {type(values['sample_fps'])}.")
 
         return values
 

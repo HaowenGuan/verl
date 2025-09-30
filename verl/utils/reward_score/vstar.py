@@ -198,6 +198,39 @@ def compute_score(solution_str: str, ground_truth_str: str) -> float:
     if not solution_str or not ground_truth_str:
         return 0.0
 
+    # ground_truth_obj = json.loads(ground_truth_str)
+    # if isinstance(ground_truth_obj, dict) and "style" in ground_truth_obj:
+    #     style = ground_truth_obj.get("style")
+    #     actual_ground_truth = ground_truth_obj.get("value", ground_truth_str)
+    #
+    #     # Use style to route to specific scoring function if available
+    #     if style == "vstar_temporal_iou":
+    #         predicted_value = parse_predicted_timestamps(solution_str)
+    #         if predicted_value is None:
+    #             logger.warning(f"Fail to parse temporal prediction: {solution_str}")
+    #             raise NotImplementedError("Failed to parse temporal prediction.")
+    #             return 0.0
+    #         temporal_output = calculate_temporal_iou(actual_ground_truth, predicted_value)
+    #         # print(f"Temporal output: {temporal_output}")
+    #         return temporal_output
+    #
+    #     elif style == "vstar_spatial_iou":
+    #         predicted_value = parse_predicted_bboxes(solution_str)
+    #         if predicted_value is None:
+    #             logger.warning(f"Fail to parse spatial prediction: {solution_str}")
+    #             return 0.0
+    #         # Fix: actual_ground_truth should be correctly formatted for calculate_spatial_metrics
+    #         # The function expects a list of dict entries (from the original format),
+    #         # not just a dict mapping frame_id to bbox coordinates
+    #         formatted_gt = []
+    #         for frame_id, coords in actual_ground_truth.items():
+    #             bbox_dict = {"xmin": coords[0], "ymin": coords[1], "xmax": coords[2], "ymax": coords[3]}
+    #             formatted_gt.append({frame_id: bbox_dict})
+    #         # Use the first AP threshold (0.1) score for consistency with legacy path
+    #         spatial_output = calculate_spatial_metrics(formatted_gt, predicted_value)[0][0]
+    #         print(f"Spatial output: {spatial_output}")
+    #         return spatial_output
+
     try:
         # Check if ground_truth is a JSON with style information
         try:
@@ -211,7 +244,7 @@ def compute_score(solution_str: str, ground_truth_str: str) -> float:
                 if style == "vstar_temporal_iou":
                     predicted_value = parse_predicted_timestamps(solution_str)
                     if predicted_value is None:
-                        logger.warning(f"Fail to parse temporal prediction: {solution_str}")
+                        logger.warning(f"[VSTaR Tool] Fail to parse temporal prediction: {solution_str}")
                         return 0.0
                     temporal_output = calculate_temporal_iou(actual_ground_truth, predicted_value)
                     # print(f"Temporal output: {temporal_output}")
@@ -220,7 +253,7 @@ def compute_score(solution_str: str, ground_truth_str: str) -> float:
                 elif style == "vstar_spatial_iou":
                     predicted_value = parse_predicted_bboxes(solution_str)
                     if predicted_value is None:
-                        logger.warning(f"Fail to parse spatial prediction: {solution_str}")
+                        logger.warning(f"[VSTaR Tool] Fail to parse spatial prediction: {solution_str}")
                         return 0.0
                     # Fix: actual_ground_truth should be correctly formatted for calculate_spatial_metrics
                     # The function expects a list of dict entries (from the original format),
@@ -241,5 +274,5 @@ def compute_score(solution_str: str, ground_truth_str: str) -> float:
         logger.error(f"Failed to parse ground_truth JSON: {ground_truth_str}")
         return 0.0
     except Exception as e:
-        logger.error(f"Error during score computation: {e}", exc_info=True)
+        logger.error(f"[VSTaR Tool] Error during score computation: {e}", exc_info=True)
         return 0.0

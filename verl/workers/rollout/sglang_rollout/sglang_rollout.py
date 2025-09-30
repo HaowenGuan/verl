@@ -852,6 +852,8 @@ class SGLangRollout(BaseRollout):
             elif _req.state == AsyncRolloutRequestStateEnum.TOOL_CALLING:
                 if _req.messages[-1].tool_calls is not None:
                     parsed_tool_calls = _req.messages[-1].tool_calls
+                    # Only execute the last tool call
+                    parsed_tool_calls = [parsed_tool_calls[-1]]
                     tool_call_results = await asyncio.gather(
                         *[
                             self._tool_map[tool_call.function.name].execute(
@@ -862,7 +864,7 @@ class SGLangRollout(BaseRollout):
                             for tool_call in parsed_tool_calls
                         ]
                     )
-                    print(f'id {rand_id} round {current_turns} tool responds:\n', tool_call_results)
+                    print(f'id {rand_id} round {current_turns} tool responds:\n', tool_call_results[0][0].text)
                     _req.add_tool_response_messages(self.processing_class, [resp for resp, _, _ in tool_call_results])
                     for tool_call, (resp, reward, metrics) in zip(parsed_tool_calls, tool_call_results, strict=True):
                         _req.update_metrics(metrics, tool_call.function.name)
@@ -993,6 +995,13 @@ class SGLangRollout(BaseRollout):
                         _req.state = AsyncRolloutRequestStateEnum.RUNNING
 
         # print("=================== Checkpoint 1: Out of loop")
+        # if current_turns >= 2:
+        #     print('=' * 20)
+        #     print(f'id {rand_id} Finished. Conversation length {len(_req.messages)}:')
+        #     messages = [msg.model_dump() for msg in _req.messages]
+        #     for i, msg in enumerate(messages):
+        #         print(f'id {rand_id} Message {i}:\n', msg)
+        #     print('=' * 20)
 
         if current_turns >= self.config.multi_turn.max_assistant_turns:
             finish_reason_type = FinishReasonTypeEnum.STOP
@@ -1092,6 +1101,8 @@ class SGLangRollout(BaseRollout):
 
         # print("============================================================ is_validate:", is_validate)
         # if not is_validate:
+        #     raise NotImplementedError
+        # if is_validate:
         #     raise NotImplementedError
 
         if self._tp_rank == 0:
